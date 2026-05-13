@@ -1,0 +1,120 @@
+!SESSION 2026-05-13 11:11:30.204 -----------------------------------------------
+eclipse.buildId=Version 1.19.0
+java.version=21.0.3
+java.vendor=Eclipse Adoptium
+BootLoader constants: OS=linux, ARCH=x86_64, WS=gtk, NL=en_US
+Command-line arguments:  -os linux -ws gtk -arch x86_64
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2026-05-13 11:11:41.828
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2026-05-13 11:11:41.829
+!MESSAGE Log4j2 initialized with config file /home/anton/Desktop/APC/Esempio/.metadata/.log4j2.xml
+
+!ENTRY org.eclipse.ui.ide 4 4 2026-05-13 11:11:42.715
+!MESSAGE Transfer aborted, too many resources: 1701738016.
+If you are running in x11vnc environment please consider to switch to vncserver + vncviewer or to run x11vnc without clipboard support (use '-noclipboard' and '-nosetclipboard' arguments).
+
+!ENTRY org.eclipse.ui.ide 4 4 2026-05-13 11:11:42.716
+!MESSAGE Transfer aborted, too many resources: 1701738016.
+If you are running in x11vnc environment please consider to switch to vncserver + vncviewer or to run x11vnc without clipboard support (use '-noclipboard' and '-nosetclipboard' arguments).
+!STACK 0
+java.lang.IllegalArgumentException: Maximum limit of resources to transfer is: 1000000
+	at org.eclipse.ui.part.ResourceTransfer.nativeToJava(ResourceTransfer.java:176)
+	at org.eclipse.swt.dnd.Clipboard.getContents(Clipboard.java:318)
+	at org.eclipse.swt.dnd.Clipboard.getContents(Clipboard.java:246)
+	at org.eclipse.ui.internal.navigator.resources.actions.PasteAction.lambda$0(PasteAction.java:216)
+	at org.eclipse.swt.widgets.Synchronizer.syncExec(Synchronizer.java:183)
+	at org.eclipse.ui.internal.UISynchronizer.syncExec(UISynchronizer.java:133)
+	at org.eclipse.swt.widgets.Display.syncExec(Display.java:5960)
+	at org.eclipse.ui.internal.navigator.resources.actions.PasteAction.updateSelection(PasteAction.java:213)
+	at org.eclipse.ui.actions.BaseSelectionListenerAction.selectionChanged(BaseSelectionListenerAction.java:128)
+	at org.eclipse.ui.internal.navigator.resources.actions.EditActionGroup.updateActionBars(EditActionGroup.java:144)
+	at org.eclipse.ui.internal.navigator.resources.actions.EditActionGroup.fillActionBars(EditActionGroup.java:96)
+	at org.eclipse.ui.internal.navigator.resources.actions.EditActionProvider.fillActionBars(EditActionProvider.java:46)
+	at org.eclipse.ui.navigator.NavigatorActionService$3.run(NavigatorActionService.java:263)
+	at org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:47)
+	at org.eclipse.ui.navigator.NavigatorActionService.fillActionBars(NavigatorActionService.java:257)
+	at org.eclipse.ui.navigator.CommonNavigatorManager$UpdateActionBarsJob$1.run(CommonNavigatorManager.java:88)
+	at org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:47)
+	at org.eclipse.ui.navigator.CommonNavigatorManager$UpdateActionBarsJob.runInUIThread(CommonNavigatorManager.java:82)
+	at org.eclipse.ui.progress.UIJob.lambda$0(UIJob.java:148)
+	at org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:40)
+	at org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:132)
+	at org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:5040)
+	at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:4520)
+	at org.eclipse.e4.ui.internal.workbench.swt.PartRenderingEngine$5.run(PartRenderingEngine.java:1151)
+	at org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:339)
+	at org.eclipse.e4.ui.internal.workbench.swt.PartRenderingEngine.run(PartRenderingEngine.java:1042)
+	at org.eclipse.e4.ui.internal.workbench.E4Workbench.createAndRunUI(E4Workbench.java:153)
+	at org.eclipse.ui.internal.Workbench.lambda$3(Workbench.java:639)
+	at org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:339)
+	at org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:546)
+	at org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:173)
+	at org.eclipse.ui.internal.ide.application.IDEApplication.start(IDEApplication.java:152)
+	at org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:208)
+	at org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:143)
+	at org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:109)
+	at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:439)
+	at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:271)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:668)
+	at org.eclipse.equinox.launcher.Main.basicRun(Main.java:605)
+	at org.eclipse.equinox.launcher.Main.run(Main.java:1481)
+	at org.eclipse.equinox.launcher.Main.main(Main.java:1454)
+
+!ENTRY org.eclipse.ui.ide 4 4 2026-05-13 11:11:42.717
+!MESSAGE Transfer aborted, too many resources: 1701738016.
+If you are running in x11vnc environment please consider to switch to vncserver + vncviewer or to run x11vnc without clipboard support (use '-noclipboard' and '-nosetclipboard' arguments).
+
+!ENTRY org.eclipse.ui.ide 4 4 2026-05-13 11:11:42.717
+!MESSAGE Transfer aborted, too many resources: 1701738016.
+If you are running in x11vnc environment please consider to switch to vncserver + vncviewer or to run x11vnc without clipboard support (use '-noclipboard' and '-nosetclipboard' arguments).
+!STACK 0
+java.lang.IllegalArgumentException: Maximum limit of resources to transfer is: 1000000
+	at org.eclipse.ui.part.ResourceTransfer.nativeToJava(ResourceTransfer.java:176)
+	at org.eclipse.swt.dnd.Clipboard.getContents(Clipboard.java:318)
+	at org.eclipse.swt.dnd.Clipboard.getContents(Clipboard.java:246)
+	at org.eclipse.ui.internal.navigator.resources.actions.PasteAction.lambda$0(PasteAction.java:216)
+	at org.eclipse.swt.widgets.Synchronizer.syncExec(Synchronizer.java:183)
+	at org.eclipse.ui.internal.UISynchronizer.syncExec(UISynchronizer.java:133)
+	at org.eclipse.swt.widgets.Display.syncExec(Display.java:5960)
+	at org.eclipse.ui.internal.navigator.resources.actions.PasteAction.updateSelection(PasteAction.java:213)
+	at org.eclipse.ui.actions.BaseSelectionListenerAction.selectionChanged(BaseSelectionListenerAction.java:128)
+	at org.eclipse.ui.internal.navigator.resources.actions.EditActionGroup.updateActionBars(EditActionGroup.java:144)
+	at org.eclipse.ui.internal.navigator.resources.actions.EditActionProvider.updateActionBars(EditActionProvider.java:61)
+	at org.eclipse.ui.navigator.NavigatorActionService$3.run(NavigatorActionService.java:264)
+	at org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:47)
+	at org.eclipse.ui.navigator.NavigatorActionService.fillActionBars(NavigatorActionService.java:257)
+	at org.eclipse.ui.navigator.CommonNavigatorManager$UpdateActionBarsJob$1.run(CommonNavigatorManager.java:88)
+	at org.eclipse.core.runtime.SafeRunner.run(SafeRunner.java:47)
+	at org.eclipse.ui.navigator.CommonNavigatorManager$UpdateActionBarsJob.runInUIThread(CommonNavigatorManager.java:82)
+	at org.eclipse.ui.progress.UIJob.lambda$0(UIJob.java:148)
+	at org.eclipse.swt.widgets.RunnableLock.run(RunnableLock.java:40)
+	at org.eclipse.swt.widgets.Synchronizer.runAsyncMessages(Synchronizer.java:132)
+	at org.eclipse.swt.widgets.Display.runAsyncMessages(Display.java:5040)
+	at org.eclipse.swt.widgets.Display.readAndDispatch(Display.java:4520)
+	at org.eclipse.e4.ui.internal.workbench.swt.PartRenderingEngine$5.run(PartRenderingEngine.java:1151)
+	at org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:339)
+	at org.eclipse.e4.ui.internal.workbench.swt.PartRenderingEngine.run(PartRenderingEngine.java:1042)
+	at org.eclipse.e4.ui.internal.workbench.E4Workbench.createAndRunUI(E4Workbench.java:153)
+	at org.eclipse.ui.internal.Workbench.lambda$3(Workbench.java:639)
+	at org.eclipse.core.databinding.observable.Realm.runWithDefault(Realm.java:339)
+	at org.eclipse.ui.internal.Workbench.createAndRunWorkbench(Workbench.java:546)
+	at org.eclipse.ui.PlatformUI.createAndRunWorkbench(PlatformUI.java:173)
+	at org.eclipse.ui.internal.ide.application.IDEApplication.start(IDEApplication.java:152)
+	at org.eclipse.equinox.internal.app.EclipseAppHandle.run(EclipseAppHandle.java:208)
+	at org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.runApplication(EclipseAppLauncher.java:143)
+	at org.eclipse.core.runtime.internal.adaptor.EclipseAppLauncher.start(EclipseAppLauncher.java:109)
+	at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:439)
+	at org.eclipse.core.runtime.adaptor.EclipseStarter.run(EclipseStarter.java:271)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.eclipse.equinox.launcher.Main.invokeFramework(Main.java:668)
+	at org.eclipse.equinox.launcher.Main.basicRun(Main.java:605)
+	at org.eclipse.equinox.launcher.Main.run(Main.java:1481)
+	at org.eclipse.equinox.launcher.Main.main(Main.java:1454)
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2026-05-13 11:11:43.651
+!MESSAGE Started RMI Server, listening on port 41337
