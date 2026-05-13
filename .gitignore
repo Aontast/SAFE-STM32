@@ -1,0 +1,12 @@
+# Escludi le cartelle metadata di Eclipse/STM32CubeIDE
+.metadata/
+
+# Escludi le impostazioni locali dell'IDE
+stm32_program/.settings/
+
+# Escludi le cartelle di compilazione
+stm32_program/Debug/
+stm32_program/Release/
+
+# Escludi le configurazioni di avvio locali
+*.launch
