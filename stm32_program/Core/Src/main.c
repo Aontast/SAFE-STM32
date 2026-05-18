@@ -21,6 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdlib.h>
 
 /* USER CODE END Includes */
 
@@ -44,6 +45,7 @@ I2C_HandleTypeDef hi2c1;
 
 SPI_HandleTypeDef hspi1;
 
+TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
 
@@ -62,7 +64,12 @@ typedef enum {
 volatile SAFE_State stato_attuale = STATO_PATTUGLIAMENTO;
 
 volatile uint8_t trigger_pulsante = 0;
+
 volatile uint8_t is_siren_active = 0;
+
+uint16_t letture_sensori_mock[5] = {0}; // Array che simula i 5 output analogici del sensore
+int angolo_fiamma_virtuale = 1;       // <--- CAMBIA QUESTO NUMERO PER FARE I TEST (da 30 a 150)
+int angolo_calcolato = 90;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -74,8 +81,9 @@ static void MX_USB_PCD_Init(void);
 static void MX_UART5_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-
+void Aggiorna_Sensori_Mock(int angolo_fiamma, uint16_t *sensori);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -145,8 +153,10 @@ int main(void)
   MX_UART5_Init();
   MX_TIM3_Init();
   MX_TIM4_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -183,16 +193,49 @@ int main(void)
 	  	  		  }
 	  	  		  break; // AGGIUNTO IL BREAK FONDAMENTALE
 
-	  	  	  case STATO_PUNTAMENTO:
+	  	  	  case STATO_PUNTAMENTO: {
 	  			  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_SET);
 	  			  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_11, GPIO_PIN_RESET);
 
-	  			  if (trigger_pulsante == 1) {
-	  				  trigger_pulsante = 0;
-	  				  stato_attuale = STATO_EROGAZIONE;
-	  				  HAL_Delay(200);
-	  			  }
-	  			  break;
+					Aggiorna_Sensori_Mock(angolo_fiamma_virtuale, letture_sensori_mock);
+
+					// 2. ALGORITMO CENTRO DI MASSA (Media Pesata)
+					uint32_t numeratore = 0;
+					uint32_t denominatore = 0;
+					int angoli_sensori[5] = {30, 60, 90, 120, 150};
+					uint32_t soglia_rumore = 500;
+
+					for (int i = 0; i < 5; i++) {
+						if (letture_sensori_mock[i] > soglia_rumore) {
+							numeratore += (uint32_t)(letture_sensori_mock[i] * angoli_sensori[i]);
+							denominatore += letture_sensori_mock[i];
+						}
+					}
+
+					// Se almeno un sensore vede la fiamma oltre la soglia
+					if (denominatore > 0) {
+						angolo_calcolato = numeratore / denominatore;
+					} else {
+						angolo_calcolato = 90; // Se non c'è fuoco, torna al centro
+					}
+
+					// 3. CONVERSIONE ANGOLO -> VALORE PWM (CCR)
+					// 0°   -> 1000 us (TIM2->CCR = 1000)
+					// 90°  -> 1500 us (TIM2->CCR = 1500)
+					// 180° -> 2000 us (TIM2->CCR = 2000)
+					uint16_t valore_pwm = 500 + (angolo_calcolato * 2000 / 180);
+					// Sposta fisicamente il servomotore aggiornando il registro di comparazione
+					__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, valore_pwm);
+
+					HAL_Delay(100);
+
+					  if (trigger_pulsante == 1) {
+						  trigger_pulsante = 0;
+						  stato_attuale = STATO_EROGAZIONE;
+						  HAL_Delay(200);
+					  }
+					  break;
+	  	  	  }
 
 	  	  	  case STATO_EROGAZIONE:
 	  			  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_11, GPIO_PIN_SET);
@@ -349,6 +392,65 @@ static void MX_SPI1_Init(void)
   /* USER CODE BEGIN SPI1_Init 2 */
 
   /* USER CODE END SPI1_Init 2 */
+
+}
+
+/**
+  * @brief TIM2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM2_Init(void)
+{
+
+  /* USER CODE BEGIN TIM2_Init 0 */
+
+  /* USER CODE END TIM2_Init 0 */
+
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
+
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 47;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 19999;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 0;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
+
+  /* USER CODE END TIM2_Init 2 */
+  HAL_TIM_MspPostInit(&htim2);
 
 }
 
@@ -580,6 +682,24 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+void Aggiorna_Sensori_Mock(int angolo_fiamma, uint16_t *sensori) {
+    int angoli_sensori[5] = {30, 60, 90, 120, 150}; // I puntamenti dei 5 occhi
+
+    for (int i = 0; i < 5; i++) {
+        // Calcoliamo la distanza angolare tra la fiamma e l'occhio del sensore
+        int distanza = abs(angolo_fiamma - angoli_sensori[i]);
+
+        if (distanza < 30) {
+            // Se la fiamma è nel campo visivo di questo specifico occhio
+            // Più è vicina (distanza piccola), più il valore si avvicina a 4095
+            sensori[i] = 4095 - (distanza * 120);
+        } else {
+            // Rumore di fondo o buio
+            sensori[i] = 150;
+        }
+    }
+}
 
 /* USER CODE END 4 */
 
