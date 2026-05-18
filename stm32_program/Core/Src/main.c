@@ -52,6 +52,16 @@ UART_HandleTypeDef huart5;
 PCD_HandleTypeDef hpcd_USB_FS;
 
 /* USER CODE BEGIN PV */
+typedef enum {
+    STATO_PATTUGLIAMENTO,
+    STATO_ALLARME,
+    STATO_PUNTAMENTO,
+    STATO_EROGAZIONE
+} SAFE_State;
+
+volatile SAFE_State stato_attuale = STATO_PATTUGLIAMENTO;
+
+volatile uint8_t trigger_pulsante = 0;
 volatile uint8_t is_siren_active = 0;
 /* USER CODE END PV */
 
@@ -74,17 +84,8 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_PIN) {
 	(void) GPIO_PIN;
 
 	if (GPIO_PIN == GPIO_PIN_0) {
-	        if (is_siren_active == 0) {
-	            HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
-	            HAL_TIM_Base_Start_IT(&htim4);
-	            is_siren_active = 1;
-	        } else {
-	            HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
-	            HAL_TIM_Base_Stop_IT(&htim4);
-	            is_siren_active = 0;
-	        }
+	        trigger_pulsante = 1;
 	    }
-
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -155,7 +156,60 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+	  switch (stato_attuale) {
 
+	  	  	  case STATO_PATTUGLIAMENTO:
+	  	  		  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8, GPIO_PIN_SET);
+	  	          HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11, GPIO_PIN_RESET);
+
+	  	          if (trigger_pulsante == 1) {
+	  	        	  trigger_pulsante = 0; // Azzera la bandierina!
+	  	        	  stato_attuale = STATO_ALLARME; // Corretto il target
+	  	        	  HAL_Delay(200); // Aggiunto anti-rimbalzo
+	  	          }
+	  	          break;
+
+	  	  	  case STATO_ALLARME:
+	  	  		  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, GPIO_PIN_SET);
+	  	  		  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8 | GPIO_PIN_10 | GPIO_PIN_11, GPIO_PIN_RESET);
+
+	  	  		  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+	  	  		  HAL_TIM_Base_Start_IT(&htim4);
+
+	  	  		  if (trigger_pulsante == 1) {
+	  	  			  trigger_pulsante = 0;
+	  	  			  stato_attuale = STATO_PUNTAMENTO;
+	  	  			  HAL_Delay(200);
+	  	  		  }
+	  	  		  break; // AGGIUNTO IL BREAK FONDAMENTALE
+
+	  	  	  case STATO_PUNTAMENTO:
+	  			  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_SET);
+	  			  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_11, GPIO_PIN_RESET);
+
+	  			  if (trigger_pulsante == 1) {
+	  				  trigger_pulsante = 0;
+	  				  stato_attuale = STATO_EROGAZIONE;
+	  				  HAL_Delay(200);
+	  			  }
+	  			  break;
+
+	  	  	  case STATO_EROGAZIONE:
+	  			  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_11, GPIO_PIN_SET);
+	  			  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10, GPIO_PIN_RESET);
+
+	  			  if (trigger_pulsante == 1) {
+	  				  trigger_pulsante = 0;
+
+	  				  // AZIONI DI SPEGNIMENTO PRIMA DI CAMBIARE STATO
+	  				  HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
+	  				  HAL_TIM_Base_Stop_IT(&htim4);
+
+	  				  stato_attuale = STATO_PATTUGLIAMENTO;
+	  				  HAL_Delay(200);
+	  			  }
+	  			  break;
+	        }
   }
   /* USER CODE END 3 */
 }
