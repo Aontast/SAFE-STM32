@@ -1,5 +1,6 @@
 # Escludi le cartelle metadata di Eclipse/STM32CubeIDE
 .metadata/
+stm32_program/.metadata/
 
 # Escludi le impostazioni locali dell'IDE
 stm32_program/.settings/
