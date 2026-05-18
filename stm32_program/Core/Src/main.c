@@ -22,7 +22,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include <stdlib.h>
-
+#include "lcd.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -62,13 +62,13 @@ typedef enum {
 } SAFE_State;
 
 volatile SAFE_State stato_attuale = STATO_PATTUGLIAMENTO;
-
+SAFE_State stato_precedente = -1;
 volatile uint8_t trigger_pulsante = 0;
 
 volatile uint8_t is_siren_active = 0;
 
 uint16_t letture_sensori_mock[5] = {0}; // Array che simula i 5 output analogici del sensore
-int angolo_fiamma_virtuale = 1;       // <--- CAMBIA QUESTO NUMERO PER FARE I TEST (da 30 a 150)
+int angolo_fiamma_virtuale = 179;       // <--- CAMBIA QUESTO NUMERO PER FARE I TEST (da 30 a 150)
 int angolo_calcolato = 90;
 /* USER CODE END PV */
 
@@ -157,6 +157,11 @@ int main(void)
   /* USER CODE BEGIN 2 */
   HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
+  lcd_init();     // Accende lo schermo
+  lcd_clear();    // Pulisce eventuali "sporcizie" iniziali
+  lcd_put_cur(0, 0);
+  lcd_send_string("1.PATTUGLIAMENTO");
+    /* USER CODE END 2 */
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -175,6 +180,9 @@ int main(void)
 	  	          if (trigger_pulsante == 1) {
 	  	        	  trigger_pulsante = 0; // Azzera la bandierina!
 	  	        	  stato_attuale = STATO_ALLARME; // Corretto il target
+	  	        	  lcd_clear();
+	  	        	  lcd_put_cur(0, 0);
+	  	        	  lcd_send_string("2. ALLARME!");
 	  	        	  HAL_Delay(200); // Aggiunto anti-rimbalzo
 	  	          }
 	  	          break;
@@ -189,6 +197,9 @@ int main(void)
 	  	  		  if (trigger_pulsante == 1) {
 	  	  			  trigger_pulsante = 0;
 	  	  			  stato_attuale = STATO_PUNTAMENTO;
+	  	        	  lcd_clear();
+	  	        	  lcd_put_cur(0, 0);
+	  	        	  lcd_send_string("3. PUNTAMENTO");
 	  	  			  HAL_Delay(200);
 	  	  		  }
 	  	  		  break; // AGGIUNTO IL BREAK FONDAMENTALE
@@ -232,6 +243,9 @@ int main(void)
 					  if (trigger_pulsante == 1) {
 						  trigger_pulsante = 0;
 						  stato_attuale = STATO_EROGAZIONE;
+		  	        	  lcd_clear();
+		  	        	  lcd_put_cur(0, 0);
+		  	        	  lcd_send_string("4. SPUTO ACQUA!");
 						  HAL_Delay(200);
 					  }
 					  break;
@@ -249,6 +263,9 @@ int main(void)
 	  				  HAL_TIM_Base_Stop_IT(&htim4);
 
 	  				  stato_attuale = STATO_PATTUGLIAMENTO;
+	  	        	  lcd_clear();
+	  	        	  lcd_put_cur(0, 0);
+	  	        	  lcd_send_string("1.PATTUGLIAMENTO");
 	  				  HAL_Delay(200);
 	  			  }
 	  			  break;
@@ -649,6 +666,10 @@ static void MX_GPIO_Init(void)
                           |LD7_Pin|LD9_Pin|LD10_Pin|LD8_Pin
                           |LD6_Pin, GPIO_PIN_RESET);
 
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11
+                          |GPIO_PIN_12|GPIO_PIN_13, GPIO_PIN_RESET);
+
   /*Configure GPIO pins : DRDY_Pin MEMS_INT3_Pin MEMS_INT4_Pin MEMS_INT2_Pin */
   GPIO_InitStruct.Pin = DRDY_Pin|MEMS_INT3_Pin|MEMS_INT4_Pin|MEMS_INT2_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_EVT_RISING;
@@ -671,6 +692,15 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : PD8 PD9 PD10 PD11
+                           PD12 PD13 */
+  GPIO_InitStruct.Pin = GPIO_PIN_8|GPIO_PIN_9|GPIO_PIN_10|GPIO_PIN_11
+                          |GPIO_PIN_12|GPIO_PIN_13;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);

@@ -3,10 +3,10 @@
   <FileVersion>3.0</FileVersion>
   <Workspace>
     <WorkspaceType>Single-project</WorkspaceType>
-    <WorkspacePath>/home/anton/Desktop/APC/SAFE-STM32/stm32_program/</WorkspacePath>
+    <WorkspacePath>/home/lucacarraturo/Documents/APC/SAFE-STM32/stm32_program/</WorkspacePath>
     <underRoot>true</underRoot>
     <TrustZone>0</TrustZone>
-    <HAL_Driver>/home/anton/STM32Cube/Repository//STM32Cube_FW_F3_V1.11.6</HAL_Driver>
+    <HAL_Driver>/home/lucacarraturo/STM32Cube/Repository//STM32Cube_FW_F3_V1.11.6</HAL_Driver>
     <CMSIS>Drivers/CMSIS</CMSIS>
     <Toolchain>STM32CubeIDE</Toolchain>
     <IocFile>stm32_program.ioc</IocFile>
@@ -49,7 +49,7 @@
                 
           </memories>
               
-          <startup>/home/anton/STM32Cube/Repository/STM32Cube_FW_F3_V1.11.6/Drivers/CMSIS/Device\ST\STM32F3xx\Source\Templates\gcc\startup_stm32f303xc.s</startup>
+          <startup>/home/lucacarraturo/STM32Cube/Repository/STM32Cube_FW_F3_V1.11.6/Drivers/CMSIS/Device\ST\STM32F3xx\Source\Templates\gcc\startup_stm32f303xc.s</startup>
                 
           <LinkSettings>
             	
