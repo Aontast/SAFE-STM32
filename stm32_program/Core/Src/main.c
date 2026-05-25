@@ -21,7 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,7 +31,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define SOGLIA_PERICOLO 2000
+#define SOGLIA_FINE_INCENDIO 500
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -40,12 +41,15 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+ADC_HandleTypeDef hadc2;
+DMA_HandleTypeDef hdma_adc2;
+
 I2C_HandleTypeDef hi2c1;
 
-SPI_HandleTypeDef hspi1;
-
+TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim4;
+TIM_HandleTypeDef htim6;
 
 UART_HandleTypeDef huart5;
 
@@ -61,31 +65,63 @@ typedef enum {
 
 volatile SAFE_State stato_attuale = STATO_PATTUGLIAMENTO;
 
-volatile uint8_t trigger_pulsante = 0;
-volatile uint8_t is_siren_active = 0;
+const uint8_t angoli_sensori[5] = {150, 120, 90, 60, 30};
+volatile uint16_t valori_sensori[5];
+volatile uint8_t angolo_corrente = 90;
+volatile uint8_t fase_erogazione = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
+static void MX_DMA_Init(void);
 static void MX_I2C1_Init(void);
-static void MX_SPI1_Init(void);
 static void MX_USB_PCD_Init(void);
 static void MX_UART5_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_ADC2_Init(void);
+static void MX_TIM6_Init(void);
+static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-
+uint8_t posizionamento_servomotore(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-void HAL_GPIO_EXTI_Callback(uint16_t GPIO_PIN) {
-	(void) GPIO_PIN;
 
-	if (GPIO_PIN == GPIO_PIN_0) {
-	        trigger_pulsante = 1;
-	    }
+void HAL_ADC_LevelOutOfWindowCallback(ADC_HandleTypeDef* hadc)
+{
+    // Verifica che l'interrupt provenga dall'ADC corretto
+    if (hadc->Instance == ADC2) {
+
+		// CONTROLLO CRITICO: Esegui l'innesco SOLO se sei a riposo.
+		if (stato_attuale == STATO_PATTUGLIAMENTO) {
+
+			// Spengi temporaneamente il watchdog per non essere disturbato
+			ADC2->CFGR &= ~ADC_CFGR_AWD1EN;
+			stato_attuale = STATO_ALLARME;
+
+			// ATTIVAZIONE ALLARME
+			HAL_TIM_Base_Start_IT(&htim4);
+			HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+
+			// CALCOLO POSIZIONE E PUNTAMENTO
+			uint8_t nuovo_angolo = posizionamento_servomotore();
+
+			// CALCOLO DINAMICO DEL TEMPO DI VOLO
+			uint8_t delta_gradi = abs(nuovo_angolo - angolo_corrente);
+			uint32_t tempo_volo_ms = (delta_gradi * 2) + 30;
+			angolo_corrente = nuovo_angolo;
+
+			// TIMER PER SPOSTAMENTO SERVOMOTORE
+			__HAL_TIM_SET_AUTORELOAD(&htim6, tempo_volo_ms - 1);
+			__HAL_TIM_SET_COUNTER(&htim6, 0);
+			fase_erogazione = 0;
+			HAL_TIM_Base_Start_IT(&htim6);
+		}
+    }
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
@@ -106,6 +142,114 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
         __HAL_TIM_SET_AUTORELOAD(&htim3, current_arr);
         __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, current_arr / 2);
     }
+
+    if (htim->Instance == TIM6) {
+
+		if (fase_erogazione == 0) {
+			// EVENTO 1: Il servomotore ha finito di ruotare ed è in posizione.
+
+			// Accende la pompa dell'acqua
+			// HAL_GPIO_WritePin(POMPA_PORT, POMPA_PIN, GPIO_PIN_SET);
+
+			// Riprogramma se stesso per aspettare 2 secondi (2000 ms) di spruzzo
+			__HAL_TIM_SET_AUTORELOAD(&htim6, 2000 - 1);
+			__HAL_TIM_SET_COUNTER(&htim6, 0); // Azzera il contatore per sicurezza
+
+			// Passa alla fase successiva per il prossimo giro
+			fase_erogazione = 1;
+		}
+		else {
+			// EVENTO 2: L'acqua è stata erogata per 2 secondi.
+
+			// Spegne la pompa istantaneamente
+			// HAL_GPIO_WritePin(POMPA_PORT, POMPA_PIN, GPIO_PIN_RESET);
+
+			// LEGGE IL DMA: Ci sono ancora sensori che rilevano fuoco sopra la soglia?
+			uint8_t fuoco_presente = 0;
+			for (int i = 0; i < 5; i++) {
+				if (valori_sensori[i] > SOGLIA_FINE_INCENDIO) {
+					fuoco_presente = 1;
+					break;
+				}
+			}
+
+			if (fuoco_presente) {
+				// IL FUOCO RESISTE: Ricalcola la mira e preparati a sparare di nuovo
+
+				uint8_t nuovo_angolo = posizionamento_servomotore(); // Ricalcola con Picco Locale
+
+				// Calcola il nuovo tempo di viaggio
+				uint8_t delta_gradi = abs(nuovo_angolo - angolo_corrente);
+				uint32_t tempo_volo_ms = (delta_gradi * 2) + 30;
+				angolo_corrente = nuovo_angolo;
+
+				// Riprogramma il Timer per aspettare che il servo si sposti
+				__HAL_TIM_SET_AUTORELOAD(&htim6, tempo_volo_ms - 1);
+				__HAL_TIM_SET_COUNTER(&htim6, 0);
+
+				fase_erogazione = 0; // Torna alla fase 0 (attesa movimento)
+			}
+			else {
+				// INCENDIO ESTINTO: Ripristina la torretta a riposo
+
+				HAL_TIM_Base_Stop_IT(&htim6);             // Ferma lo schedulatore
+				HAL_TIM_Base_Stop_IT(&htim4);             // Ferma il timer della sirena
+				HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);  // Spegni fisicamente la sirena
+
+				// Riporta il servo dritto a 90 gradi (valore PWM 1500)
+				__HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, 1500);
+				angolo_corrente = 90;
+
+				// Resetta le variabili di stato per il prossimo incendio
+				stato_attuale = STATO_PATTUGLIAMENTO;
+				fase_erogazione = 0;
+
+				// Riabilita il Watchdog Hardware (AWD) che avevamo spento all'inizio
+				ADC2->CFGR |= ADC_CFGR_AWD1EN;
+			}
+		}
+	}
+}
+
+uint8_t posizionamento_servomotore(void)
+{
+    uint16_t max_val = 0;
+    uint8_t max_idx = 0;
+
+    // Ricerca del Picco
+    for (int i = 0; i < 5; i++) {
+        if (valori_sensori[i] > max_val) {
+            max_val = valori_sensori[i];
+            max_idx = i;
+        }
+    }
+
+    // Calcolo Media Pesata Locale (per gestire più sorgenti)
+    uint32_t numeratore = 0;
+    uint32_t denominatore = 0;
+
+    numeratore += valori_sensori[max_idx] * angoli_sensori[max_idx];
+    denominatore += valori_sensori[max_idx];
+
+    // Aggiunge il vicino di sinistra e di destra (se esistono)
+    if (max_idx > 0) {
+        numeratore += valori_sensori[max_idx - 1] * angoli_sensori[max_idx - 1];
+        denominatore += valori_sensori[max_idx - 1];
+    }
+    if (max_idx < 4) {
+        numeratore += valori_sensori[max_idx + 1] * angoli_sensori[max_idx + 1];
+        denominatore += valori_sensori[max_idx + 1];
+    }
+
+    // Calcolo finale dell'angolo
+    uint8_t angolo_calcolato = numeratore / denominatore;
+
+    // Attuazione del Servomotore
+    uint32_t impulso_pwm = 500 + ((uint32_t)angolo_calcolato * 2000) / 180;
+    __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, impulso_pwm);
+
+    return angolo_calcolato;
+
 }
 
 /* USER CODE END 0 */
@@ -139,14 +283,18 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_DMA_Init();
   MX_I2C1_Init();
-  MX_SPI1_Init();
   MX_USB_PCD_Init();
   MX_UART5_Init();
   MX_TIM3_Init();
   MX_TIM4_Init();
+  MX_ADC2_Init();
+  MX_TIM6_Init();
+  MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
-  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+  HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
+  HAL_ADC_Start_DMA(&hadc2, (uint32_t*)valori_sensori, 5);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -156,60 +304,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  switch (stato_attuale) {
-
-	  	  	  case STATO_PATTUGLIAMENTO:
-	  	  		  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8, GPIO_PIN_SET);
-	  	          HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9 | GPIO_PIN_10 | GPIO_PIN_11, GPIO_PIN_RESET);
-
-	  	          if (trigger_pulsante == 1) {
-	  	        	  trigger_pulsante = 0; // Azzera la bandierina!
-	  	        	  stato_attuale = STATO_ALLARME; // Corretto il target
-	  	        	  HAL_Delay(200); // Aggiunto anti-rimbalzo
-	  	          }
-	  	          break;
-
-	  	  	  case STATO_ALLARME:
-	  	  		  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_9, GPIO_PIN_SET);
-	  	  		  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8 | GPIO_PIN_10 | GPIO_PIN_11, GPIO_PIN_RESET);
-
-	  	  		  HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
-	  	  		  HAL_TIM_Base_Start_IT(&htim4);
-
-	  	  		  if (trigger_pulsante == 1) {
-	  	  			  trigger_pulsante = 0;
-	  	  			  stato_attuale = STATO_PUNTAMENTO;
-	  	  			  HAL_Delay(200);
-	  	  		  }
-	  	  		  break; // AGGIUNTO IL BREAK FONDAMENTALE
-
-	  	  	  case STATO_PUNTAMENTO:
-	  			  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_10, GPIO_PIN_SET);
-	  			  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_11, GPIO_PIN_RESET);
-
-	  			  if (trigger_pulsante == 1) {
-	  				  trigger_pulsante = 0;
-	  				  stato_attuale = STATO_EROGAZIONE;
-	  				  HAL_Delay(200);
-	  			  }
-	  			  break;
-
-	  	  	  case STATO_EROGAZIONE:
-	  			  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_11, GPIO_PIN_SET);
-	  			  HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8 | GPIO_PIN_9 | GPIO_PIN_10, GPIO_PIN_RESET);
-
-	  			  if (trigger_pulsante == 1) {
-	  				  trigger_pulsante = 0;
-
-	  				  // AZIONI DI SPEGNIMENTO PRIMA DI CAMBIARE STATO
-	  				  HAL_TIM_PWM_Stop(&htim3, TIM_CHANNEL_1);
-	  				  HAL_TIM_Base_Stop_IT(&htim4);
-
-	  				  stato_attuale = STATO_PATTUGLIAMENTO;
-	  				  HAL_Delay(200);
-	  			  }
-	  			  break;
-	        }
   }
   /* USER CODE END 3 */
 }
@@ -254,14 +348,117 @@ void SystemClock_Config(void)
     Error_Handler();
   }
   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB|RCC_PERIPHCLK_UART5
-                              |RCC_PERIPHCLK_I2C1;
+                              |RCC_PERIPHCLK_I2C1|RCC_PERIPHCLK_ADC12;
   PeriphClkInit.Uart5ClockSelection = RCC_UART5CLKSOURCE_PCLK1;
+  PeriphClkInit.Adc12ClockSelection = RCC_ADC12PLLCLK_DIV1;
   PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
   PeriphClkInit.USBClockSelection = RCC_USBCLKSOURCE_PLL;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief ADC2 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_ADC2_Init(void)
+{
+
+  /* USER CODE BEGIN ADC2_Init 0 */
+
+  /* USER CODE END ADC2_Init 0 */
+
+  ADC_AnalogWDGConfTypeDef AnalogWDGConfig = {0};
+  ADC_ChannelConfTypeDef sConfig = {0};
+
+  /* USER CODE BEGIN ADC2_Init 1 */
+
+  /* USER CODE END ADC2_Init 1 */
+
+  /** Common config
+  */
+  hadc2.Instance = ADC2;
+  hadc2.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
+  hadc2.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc2.Init.ScanConvMode = ADC_SCAN_ENABLE;
+  hadc2.Init.ContinuousConvMode = DISABLE;
+  hadc2.Init.DiscontinuousConvMode = DISABLE;
+  hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
+  hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
+  hadc2.Init.DataAlign = ADC_DATAALIGN_RIGHT;
+  hadc2.Init.NbrOfConversion = 5;
+  hadc2.Init.DMAContinuousRequests = DISABLE;
+  hadc2.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc2.Init.LowPowerAutoWait = DISABLE;
+  hadc2.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
+  if (HAL_ADC_Init(&hadc2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analog WatchDog 1
+  */
+  AnalogWDGConfig.WatchdogNumber = ADC_ANALOGWATCHDOG_1;
+  AnalogWDGConfig.WatchdogMode = ADC_ANALOGWATCHDOG_ALL_REG;
+  AnalogWDGConfig.HighThreshold = 2000;
+  AnalogWDGConfig.LowThreshold = 0;
+  AnalogWDGConfig.ITMode = DISABLE;
+  if (HAL_ADC_AnalogWDGConfig(&hadc2, &AnalogWDGConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Channel = ADC_CHANNEL_1;
+  sConfig.Rank = ADC_REGULAR_RANK_1;
+  sConfig.SingleDiff = ADC_SINGLE_ENDED;
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  sConfig.OffsetNumber = ADC_OFFSET_NONE;
+  sConfig.Offset = 0;
+  if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Rank = ADC_REGULAR_RANK_2;
+  if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Rank = ADC_REGULAR_RANK_3;
+  if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Rank = ADC_REGULAR_RANK_4;
+  if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Regular Channel
+  */
+  sConfig.Rank = ADC_REGULAR_RANK_5;
+  if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN ADC2_Init 2 */
+
+  /* USER CODE END ADC2_Init 2 */
+
 }
 
 /**
@@ -313,42 +510,61 @@ static void MX_I2C1_Init(void)
 }
 
 /**
-  * @brief SPI1 Initialization Function
+  * @brief TIM2 Initialization Function
   * @param None
   * @retval None
   */
-static void MX_SPI1_Init(void)
+static void MX_TIM2_Init(void)
 {
 
-  /* USER CODE BEGIN SPI1_Init 0 */
+  /* USER CODE BEGIN TIM2_Init 0 */
 
-  /* USER CODE END SPI1_Init 0 */
+  /* USER CODE END TIM2_Init 0 */
 
-  /* USER CODE BEGIN SPI1_Init 1 */
+  TIM_ClockConfigTypeDef sClockSourceConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+  TIM_OC_InitTypeDef sConfigOC = {0};
 
-  /* USER CODE END SPI1_Init 1 */
-  /* SPI1 parameter configuration*/
-  hspi1.Instance = SPI1;
-  hspi1.Init.Mode = SPI_MODE_MASTER;
-  hspi1.Init.Direction = SPI_DIRECTION_2LINES;
-  hspi1.Init.DataSize = SPI_DATASIZE_4BIT;
-  hspi1.Init.CLKPolarity = SPI_POLARITY_LOW;
-  hspi1.Init.CLKPhase = SPI_PHASE_1EDGE;
-  hspi1.Init.NSS = SPI_NSS_SOFT;
-  hspi1.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_4;
-  hspi1.Init.FirstBit = SPI_FIRSTBIT_MSB;
-  hspi1.Init.TIMode = SPI_TIMODE_DISABLE;
-  hspi1.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
-  hspi1.Init.CRCPolynomial = 7;
-  hspi1.Init.CRCLength = SPI_CRC_LENGTH_DATASIZE;
-  hspi1.Init.NSSPMode = SPI_NSS_PULSE_ENABLE;
-  if (HAL_SPI_Init(&hspi1) != HAL_OK)
+  /* USER CODE BEGIN TIM2_Init 1 */
+
+  /* USER CODE END TIM2_Init 1 */
+  htim2.Instance = TIM2;
+  htim2.Init.Prescaler = 47;
+  htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim2.Init.Period = 19999;
+  htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN SPI1_Init 2 */
+  sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+  if (HAL_TIM_ConfigClockSource(&htim2, &sClockSourceConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  if (HAL_TIM_PWM_Init(&htim2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim2, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sConfigOC.OCMode = TIM_OCMODE_PWM1;
+  sConfigOC.Pulse = 1500;
+  sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+  sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+  if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM2_Init 2 */
 
-  /* USER CODE END SPI1_Init 2 */
+  /* USER CODE END TIM2_Init 2 */
+  HAL_TIM_MspPostInit(&htim2);
 
 }
 
@@ -457,6 +673,44 @@ static void MX_TIM4_Init(void)
 }
 
 /**
+  * @brief TIM6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM6_Init(void)
+{
+
+  /* USER CODE BEGIN TIM6_Init 0 */
+
+  /* USER CODE END TIM6_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM6_Init 1 */
+
+  /* USER CODE END TIM6_Init 1 */
+  htim6.Instance = TIM6;
+  htim6.Init.Prescaler = 47999;
+  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim6.Init.Period = 65535;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM6_Init 2 */
+
+  /* USER CODE END TIM6_Init 2 */
+
+}
+
+/**
   * @brief UART5 Initialization Function
   * @param None
   * @retval None
@@ -519,6 +773,22 @@ static void MX_USB_PCD_Init(void)
   /* USER CODE BEGIN USB_Init 2 */
 
   /* USER CODE END USB_Init 2 */
+
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_DMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_DMA2_CLK_ENABLE();
+
+  /* DMA interrupt init */
+  /* DMA2_Channel1_IRQn interrupt configuration */
+  HAL_NVIC_SetPriority(DMA2_Channel1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(DMA2_Channel1_IRQn);
 
 }
 
