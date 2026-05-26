@@ -21,7 +21,6 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-#include <stdlib.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,7 +30,7 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-#define SOGLIA_PERICOLO 2000
+#define SOGLIA_PERICOLO 1500
 #define SOGLIA_FINE_INCENDIO 500
 /* USER CODE END PD */
 
@@ -65,10 +64,12 @@ typedef enum {
 
 volatile SAFE_State stato_attuale = STATO_PATTUGLIAMENTO;
 
-const uint8_t angoli_sensori[5] = {150, 120, 90, 60, 30};
+const uint8_t angoli_sensori[5] = {30, 60, 90, 120, 150};
 volatile uint16_t valori_sensori[5];
 volatile uint8_t angolo_corrente = 90;
 volatile uint8_t fase_erogazione = 0;
+
+volatile uint8_t allarme_in_sospeso = 0;
 
 /* USER CODE END PV */
 
@@ -85,86 +86,85 @@ static void MX_ADC2_Init(void);
 static void MX_TIM6_Init(void);
 static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
-uint8_t posizionamento_servomotore(void);
+uint32_t fase_puntamento_servomotore(void);
+void variazione_tono_buzzer(void);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_PIN) {
+	if (GPIO_PIN == GPIO_PIN_0) {
+		HAL_GPIO_TogglePin(GPIOB, GPIO_PIN_0);
+	}
+}
+
+// ISR eseguita quando un sensore supera la soglia di fiamma
+
 void HAL_ADC_LevelOutOfWindowCallback(ADC_HandleTypeDef* hadc)
 {
-    // Verifica che l'interrupt provenga dall'ADC corretto
     if (hadc->Instance == ADC2) {
+        if (stato_attuale == STATO_PATTUGLIAMENTO) {
+            // Spegne temporaneamente il watchdog e prenota l'esecuzione
+            ADC2->CFGR &= ~ADC_CFGR_AWD1EN;
+            allarme_in_sospeso = 1;
+        }
+    }
+}
 
-		// CONTROLLO CRITICO: Esegui l'innesco SOLO se sei a riposo.
-		if (stato_attuale == STATO_PATTUGLIAMENTO) {
+// ISR eseguita quando il DMA scansiona tutti e 5 i sensori
 
-			// Spengi temporaneamente il watchdog per non essere disturbato
-			ADC2->CFGR &= ~ADC_CFGR_AWD1EN;
-			stato_attuale = STATO_ALLARME;
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
+{
+    // Esegue il calcolo solo a vettore completo e allarme prenotato
+    if (hadc->Instance == ADC2 && allarme_in_sospeso) {
 
-			// ATTIVAZIONE ALLARME
-			HAL_TIM_Base_Start_IT(&htim4);
-			HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
+        allarme_in_sospeso = 0;
+        stato_attuale = STATO_ALLARME;
 
-			// CALCOLO POSIZIONE E PUNTAMENTO
-			uint8_t nuovo_angolo = posizionamento_servomotore();
+        HAL_TIM_Base_Start_IT(&htim4);
+        HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
 
-			// CALCOLO DINAMICO DEL TEMPO DI VOLO
-			uint8_t delta_gradi = abs(nuovo_angolo - angolo_corrente);
-			uint32_t tempo_volo_ms = (delta_gradi * 2) + 30;
-			angolo_corrente = nuovo_angolo;
+        uint32_t tempo_volo_ms = fase_puntamento_servomotore();
 
-			// TIMER PER SPOSTAMENTO SERVOMOTORE
-			__HAL_TIM_SET_AUTORELOAD(&htim6, tempo_volo_ms - 1);
-			__HAL_TIM_SET_COUNTER(&htim6, 0);
-			fase_erogazione = 0;
-			HAL_TIM_Base_Start_IT(&htim6);
-		}
+        __HAL_TIM_SET_AUTORELOAD(&htim6, tempo_volo_ms - 1);
+        __HAL_TIM_SET_COUNTER(&htim6, 0);
+        fase_erogazione = 0;
+        HAL_TIM_Base_Start_IT(&htim6);
     }
 }
 
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 {
+	// ISR per gestire la variazione di tonalità del buzzer
     if (htim->Instance == TIM4) {
-
-        static uint16_t current_arr = 800;
-        static int8_t direction = 1;
-
-        current_arr += (direction * 20);
-
-        if (current_arr >= 1600) {
-            direction = -1;
-        } else if (current_arr <= 800) {
-            direction = 1;
-        }
-
-        __HAL_TIM_SET_AUTORELOAD(&htim3, current_arr);
-        __HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, current_arr / 2);
+    	variazione_tono_buzzer();
     }
 
+    // ISR per gestire l'accensione della pompa quando il servomotore è in posizione
     if (htim->Instance == TIM6) {
 
 		if (fase_erogazione == 0) {
-			// EVENTO 1: Il servomotore ha finito di ruotare ed è in posizione.
+			stato_attuale = STATO_EROGAZIONE;
+			// CASO 1: Prima volta che rileva la fiamma
 
 			// Accende la pompa dell'acqua
-			// HAL_GPIO_WritePin(POMPA_PORT, POMPA_PIN, GPIO_PIN_SET);
+			HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
 
-			// Riprogramma se stesso per aspettare 2 secondi (2000 ms) di spruzzo
+			// Riprogramma se stesso per effettuare 2 secondi (2000 ms) di spruzzo
 			__HAL_TIM_SET_AUTORELOAD(&htim6, 2000 - 1);
-			__HAL_TIM_SET_COUNTER(&htim6, 0); // Azzera il contatore per sicurezza
+			__HAL_TIM_SET_COUNTER(&htim6, 0);
 
-			// Passa alla fase successiva per il prossimo giro
+			// passaggio al caso 2 al successivo scadere del timer
 			fase_erogazione = 1;
 		}
 		else {
-			// EVENTO 2: L'acqua è stata erogata per 2 secondi.
+			// CASO 2: La pompa ha erogato per 2 secondi
 
 			// Spegne la pompa istantaneamente
-			// HAL_GPIO_WritePin(POMPA_PORT, POMPA_PIN, GPIO_PIN_RESET);
+			HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
 
-			// LEGGE IL DMA: Ci sono ancora sensori che rilevano fuoco sopra la soglia?
+			// Verifica se sono ancora sensori che rilevano fuoco sopra la soglia
 			uint8_t fuoco_presente = 0;
 			for (int i = 0; i < 5; i++) {
 				if (valori_sensori[i] > SOGLIA_FINE_INCENDIO) {
@@ -174,20 +174,12 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 			}
 
 			if (fuoco_presente) {
-				// IL FUOCO RESISTE: Ricalcola la mira e preparati a sparare di nuovo
 
-				uint8_t nuovo_angolo = posizionamento_servomotore(); // Ricalcola con Picco Locale
+				uint32_t tempo_volo_ms = fase_puntamento_servomotore();
 
-				// Calcola il nuovo tempo di viaggio
-				uint8_t delta_gradi = abs(nuovo_angolo - angolo_corrente);
-				uint32_t tempo_volo_ms = (delta_gradi * 2) + 30;
-				angolo_corrente = nuovo_angolo;
-
-				// Riprogramma il Timer per aspettare che il servo si sposti
 				__HAL_TIM_SET_AUTORELOAD(&htim6, tempo_volo_ms - 1);
 				__HAL_TIM_SET_COUNTER(&htim6, 0);
-
-				fase_erogazione = 0; // Torna alla fase 0 (attesa movimento)
+				fase_erogazione = 0;
 			}
 			else {
 				// INCENDIO ESTINTO: Ripristina la torretta a riposo
@@ -204,15 +196,34 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 				stato_attuale = STATO_PATTUGLIAMENTO;
 				fase_erogazione = 0;
 
-				// Riabilita il Watchdog Hardware (AWD) che avevamo spento all'inizio
+				// Riabilita il Watchdog
 				ADC2->CFGR |= ADC_CFGR_AWD1EN;
 			}
 		}
 	}
 }
 
-uint8_t posizionamento_servomotore(void)
+void variazione_tono_buzzer(void)
 {
+	static uint16_t current_arr = 800;
+	static int8_t direction = 1;
+
+	current_arr += (direction * 20);
+
+	if (current_arr >= 1600) {
+		direction = -1;
+	} else if (current_arr <= 800) {
+		direction = 1;
+	}
+
+	__HAL_TIM_SET_AUTORELOAD(&htim3, current_arr);
+	__HAL_TIM_SET_COMPARE(&htim3, TIM_CHANNEL_1, current_arr / 2);
+}
+
+uint32_t fase_puntamento_servomotore(void)
+{
+    stato_attuale = STATO_PUNTAMENTO;
+
     uint16_t max_val = 0;
     uint8_t max_idx = 0;
 
@@ -224,31 +235,51 @@ uint8_t posizionamento_servomotore(void)
         }
     }
 
-    // Calcolo Media Pesata Locale (per gestire più sorgenti)
     uint32_t numeratore = 0;
     uint32_t denominatore = 0;
 
-    numeratore += valori_sensori[max_idx] * angoli_sensori[max_idx];
-    denominatore += valori_sensori[max_idx];
+    // Calcolo Media Pesata Locale (per gestire più sorgenti)
+//
+//    numeratore += valori_sensori[max_idx] * angoli_sensori[max_idx];
+//    denominatore += valori_sensori[max_idx];
+//
+//    // Aggiunge il vicino di sinistra e di destra (se esistono)
+//    if (max_idx > 0) {
+//        numeratore += valori_sensori[max_idx - 1] * angoli_sensori[max_idx - 1];
+//        denominatore += valori_sensori[max_idx - 1];
+//    }
+//    if (max_idx < 4) {
+//        numeratore += valori_sensori[max_idx + 1] * angoli_sensori[max_idx + 1];
+//        denominatore += valori_sensori[max_idx + 1];
+//    }
 
-    // Aggiunge il vicino di sinistra e di destra (se esistono)
-    if (max_idx > 0) {
-        numeratore += valori_sensori[max_idx - 1] * angoli_sensori[max_idx - 1];
-        denominatore += valori_sensori[max_idx - 1];
-    }
-    if (max_idx < 4) {
-        numeratore += valori_sensori[max_idx + 1] * angoli_sensori[max_idx + 1];
-        denominatore += valori_sensori[max_idx + 1];
-    }
+    // Calcolo Media Pesata Globale su tutti e 5 i sensori
+	for (int i = 0; i < 5; i++) {
+		numeratore += valori_sensori[i] * angoli_sensori[i];
+		denominatore += valori_sensori[i];
+	}
+
+	// Sicurezza contro divisione per zero (improbabile con l'AWD attivo, ma necessaria)
+	if (denominatore == 0) {
+		return 90; // Torna al centro come posizione di riposo
+	}
 
     // Calcolo finale dell'angolo
     uint8_t angolo_calcolato = numeratore / denominatore;
+
+    // Calcolo del tempo necessario a ruotare il servomotore
+	int16_t delta_gradi = (int16_t)angolo_calcolato - (int16_t)angolo_corrente;
+	if (delta_gradi < 0) delta_gradi = -delta_gradi;
+	uint32_t tempo_volo_ms = (delta_gradi * 2) + 30;
 
     // Attuazione del Servomotore
     uint32_t impulso_pwm = 500 + ((uint32_t)angolo_calcolato * 2000) / 180;
     __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_2, impulso_pwm);
 
-    return angolo_calcolato;
+	// Aggiornamento angolo corrente
+	angolo_corrente = angolo_calcolato;
+
+    return tempo_volo_ms;
 
 }
 
@@ -294,6 +325,7 @@ int main(void)
   MX_TIM2_Init();
   /* USER CODE BEGIN 2 */
   HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_2);
+  HAL_ADCEx_Calibration_Start(&hadc2, ADC_SINGLE_ENDED);
   HAL_ADC_Start_DMA(&hadc2, (uint32_t*)valori_sensori, 5);
   /* USER CODE END 2 */
 
@@ -384,14 +416,14 @@ static void MX_ADC2_Init(void)
   hadc2.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV1;
   hadc2.Init.Resolution = ADC_RESOLUTION_12B;
   hadc2.Init.ScanConvMode = ADC_SCAN_ENABLE;
-  hadc2.Init.ContinuousConvMode = DISABLE;
+  hadc2.Init.ContinuousConvMode = ENABLE;
   hadc2.Init.DiscontinuousConvMode = DISABLE;
   hadc2.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
   hadc2.Init.ExternalTrigConv = ADC_SOFTWARE_START;
   hadc2.Init.DataAlign = ADC_DATAALIGN_RIGHT;
   hadc2.Init.NbrOfConversion = 5;
-  hadc2.Init.DMAContinuousRequests = DISABLE;
-  hadc2.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
+  hadc2.Init.DMAContinuousRequests = ENABLE;
+  hadc2.Init.EOCSelection = ADC_EOC_SEQ_CONV;
   hadc2.Init.LowPowerAutoWait = DISABLE;
   hadc2.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
   if (HAL_ADC_Init(&hadc2) != HAL_OK)
@@ -403,9 +435,9 @@ static void MX_ADC2_Init(void)
   */
   AnalogWDGConfig.WatchdogNumber = ADC_ANALOGWATCHDOG_1;
   AnalogWDGConfig.WatchdogMode = ADC_ANALOGWATCHDOG_ALL_REG;
-  AnalogWDGConfig.HighThreshold = 2000;
+  AnalogWDGConfig.HighThreshold = SOGLIA_PERICOLO;
   AnalogWDGConfig.LowThreshold = 0;
-  AnalogWDGConfig.ITMode = DISABLE;
+  AnalogWDGConfig.ITMode = ENABLE;
   if (HAL_ADC_AnalogWDGConfig(&hadc2, &AnalogWDGConfig) != HAL_OK)
   {
     Error_Handler();
@@ -416,7 +448,7 @@ static void MX_ADC2_Init(void)
   sConfig.Channel = ADC_CHANNEL_1;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
-  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
+  sConfig.SamplingTime = ADC_SAMPLETIME_61CYCLES_5;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
   if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
@@ -426,6 +458,7 @@ static void MX_ADC2_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_2;
   sConfig.Rank = ADC_REGULAR_RANK_2;
   if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
   {
@@ -434,6 +467,7 @@ static void MX_ADC2_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_3;
   sConfig.Rank = ADC_REGULAR_RANK_3;
   if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
   {
@@ -442,6 +476,7 @@ static void MX_ADC2_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_4;
   sConfig.Rank = ADC_REGULAR_RANK_4;
   if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
   {
@@ -450,6 +485,7 @@ static void MX_ADC2_Init(void)
 
   /** Configure Regular Channel
   */
+  sConfig.Channel = ADC_CHANNEL_6;
   sConfig.Rank = ADC_REGULAR_RANK_5;
   if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
   {
@@ -693,7 +729,7 @@ static void MX_TIM6_Init(void)
   htim6.Init.Prescaler = 47999;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim6.Init.Period = 65535;
-  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
   {
     Error_Handler();
@@ -809,13 +845,16 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOE, CS_I2C_SPI_Pin|LD4_Pin|LD3_Pin|LD5_Pin
                           |LD7_Pin|LD9_Pin|LD10_Pin|LD8_Pin
                           |LD6_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : DRDY_Pin MEMS_INT3_Pin MEMS_INT4_Pin MEMS_INT2_Pin */
   GPIO_InitStruct.Pin = DRDY_Pin|MEMS_INT3_Pin|MEMS_INT4_Pin|MEMS_INT2_Pin;
@@ -839,6 +878,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : PB0 */
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
   HAL_NVIC_SetPriority(EXTI0_IRQn, 0, 0);
