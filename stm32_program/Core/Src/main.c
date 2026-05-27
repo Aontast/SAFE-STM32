@@ -21,6 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <string.h>
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -31,7 +33,8 @@
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
 #define SOGLIA_PERICOLO 1500
-#define SOGLIA_FINE_INCENDIO 500
+#define SOGLIA_FINE_INCENDIO 1000
+#define TEMPO_DURATA_SPRUZZO 2000
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -42,8 +45,6 @@
 /* Private variables ---------------------------------------------------------*/
 ADC_HandleTypeDef hadc2;
 DMA_HandleTypeDef hdma_adc2;
-
-I2C_HandleTypeDef hi2c1;
 
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
@@ -77,7 +78,6 @@ volatile uint8_t allarme_in_sospeso = 0;
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
-static void MX_I2C1_Init(void);
 static void MX_USB_PCD_Init(void);
 static void MX_UART5_Init(void);
 static void MX_TIM3_Init(void);
@@ -88,6 +88,7 @@ static void MX_TIM2_Init(void);
 /* USER CODE BEGIN PFP */
 uint32_t fase_puntamento_servomotore(void);
 void variazione_tono_buzzer(void);
+void invia_esp(char* tipo, char* messaggio);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -121,6 +122,8 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 
         allarme_in_sospeso = 0;
         stato_attuale = STATO_ALLARME;
+        invia_esp("STATO", "ALLARME");
+        invia_esp("LOG", "Fiamma rilevata - avvio sequenza");
 
         HAL_TIM_Base_Start_IT(&htim4);
         HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1);
@@ -147,12 +150,14 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 		if (fase_erogazione == 0) {
 			stato_attuale = STATO_EROGAZIONE;
 			// CASO 1: Prima volta che rileva la fiamma
+			invia_esp("STATO", "EROGAZIONE");
+			invia_esp("LOG", "Pompa attivata");
 
 			// Accende la pompa dell'acqua
 			HAL_GPIO_WritePin(GPIOB, GPIO_PIN_0, GPIO_PIN_SET);
 
 			// Riprogramma se stesso per effettuare 2 secondi (2000 ms) di spruzzo
-			__HAL_TIM_SET_AUTORELOAD(&htim6, 2000 - 1);
+			__HAL_TIM_SET_AUTORELOAD(&htim6, TEMPO_DURATA_SPRUZZO - 1);
 			__HAL_TIM_SET_COUNTER(&htim6, 0);
 
 			// passaggio al caso 2 al successivo scadere del timer
@@ -175,6 +180,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 			if (fuoco_presente) {
 
+				invia_esp("LOG", "Fuoco ancora presente - ricalcolo mira");
 				uint32_t tempo_volo_ms = fase_puntamento_servomotore();
 
 				__HAL_TIM_SET_AUTORELOAD(&htim6, tempo_volo_ms - 1);
@@ -194,6 +200,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
 
 				// Resetta le variabili di stato per il prossimo incendio
 				stato_attuale = STATO_PATTUGLIAMENTO;
+				invia_esp("STATO", "PATTUGLIAMENTO");
+				invia_esp("LOG", "Incendio estinto - sistema ripristinato");
 				fase_erogazione = 0;
 
 				// Riabilita il Watchdog
@@ -266,6 +274,10 @@ uint32_t fase_puntamento_servomotore(void)
 
     // Calcolo finale dell'angolo
     uint8_t angolo_calcolato = numeratore / denominatore;
+    char msg[64];
+    snprintf(msg, sizeof(msg), "Puntamento a %d gradi", angolo_calcolato);
+    invia_esp("STATO", "PUNTAMENTO");
+    invia_esp("LOG", msg);
 
     // Calcolo del tempo necessario a ruotare il servomotore
 	int16_t delta_gradi = (int16_t)angolo_calcolato - (int16_t)angolo_corrente;
@@ -281,6 +293,13 @@ uint32_t fase_puntamento_servomotore(void)
 
     return tempo_volo_ms;
 
+}
+
+void invia_esp(char* tipo, char* messaggio)
+{
+    char buffer[128];
+    snprintf(buffer, sizeof(buffer), "%s:%s\n", tipo, messaggio);
+    HAL_UART_Transmit(&huart5, (uint8_t*)buffer, strlen(buffer), 100);
 }
 
 /* USER CODE END 0 */
@@ -315,7 +334,6 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   MX_DMA_Init();
-  MX_I2C1_Init();
   MX_USB_PCD_Init();
   MX_UART5_Init();
   MX_TIM3_Init();
@@ -353,11 +371,10 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI|RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
   RCC_OscInitStruct.HSEState = RCC_HSE_BYPASS;
   RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV1;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
   RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
   RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
   RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL6;
@@ -380,10 +397,9 @@ void SystemClock_Config(void)
     Error_Handler();
   }
   PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USB|RCC_PERIPHCLK_UART5
-                              |RCC_PERIPHCLK_I2C1|RCC_PERIPHCLK_ADC12;
+                              |RCC_PERIPHCLK_ADC12;
   PeriphClkInit.Uart5ClockSelection = RCC_UART5CLKSOURCE_PCLK1;
   PeriphClkInit.Adc12ClockSelection = RCC_ADC12PLLCLK_DIV1;
-  PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
   PeriphClkInit.USBClockSelection = RCC_USBCLKSOURCE_PLL;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
@@ -435,7 +451,7 @@ static void MX_ADC2_Init(void)
   */
   AnalogWDGConfig.WatchdogNumber = ADC_ANALOGWATCHDOG_1;
   AnalogWDGConfig.WatchdogMode = ADC_ANALOGWATCHDOG_ALL_REG;
-  AnalogWDGConfig.HighThreshold = SOGLIA_PERICOLO;
+  AnalogWDGConfig.HighThreshold = 2000;
   AnalogWDGConfig.LowThreshold = 0;
   AnalogWDGConfig.ITMode = ENABLE;
   if (HAL_ADC_AnalogWDGConfig(&hadc2, &AnalogWDGConfig) != HAL_OK)
@@ -494,54 +510,6 @@ static void MX_ADC2_Init(void)
   /* USER CODE BEGIN ADC2_Init 2 */
 
   /* USER CODE END ADC2_Init 2 */
-
-}
-
-/**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_I2C1_Init(void)
-{
-
-  /* USER CODE BEGIN I2C1_Init 0 */
-
-  /* USER CODE END I2C1_Init 0 */
-
-  /* USER CODE BEGIN I2C1_Init 1 */
-
-  /* USER CODE END I2C1_Init 1 */
-  hi2c1.Instance = I2C1;
-  hi2c1.Init.Timing = 0x00201D2B;
-  hi2c1.Init.OwnAddress1 = 0;
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c1.Init.OwnAddress2 = 0;
-  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Analogue filter
-  */
-  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
-  {
-    Error_Handler();
-  }
-
-  /** Configure Digital filter
-  */
-  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN I2C1_Init 2 */
-
-  /* USER CODE END I2C1_Init 2 */
 
 }
 
