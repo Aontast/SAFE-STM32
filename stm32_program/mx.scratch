@@ -3,7 +3,7 @@
   <FileVersion>3.0</FileVersion>
   <Workspace>
     <WorkspaceType>Single-project</WorkspaceType>
-    <WorkspacePath>/home/anton/Desktop/APC/SAFE-STM32/stm32_program/</WorkspacePath>
+    <WorkspacePath>/home/anton/Desktop/New Folder/APC/SAFE-STM32/stm32_program/</WorkspacePath>
     <underRoot>true</underRoot>
     <TrustZone>0</TrustZone>
     <HAL_Driver>/home/anton/STM32Cube/Repository//STM32Cube_FW_F3_V1.11.6</HAL_Driver>
