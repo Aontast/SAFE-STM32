@@ -33,7 +33,7 @@ Il progetto è stato configurato tramite **STM32CubeMX** sfruttando le librerie 
 | Periferica | Pin / Risorsa | Configurazione | Funzione |
 | :--- | :--- | :--- | :--- |
 | **PWM Output** | `TIM2_CH1` | Prescaler: 47, ARR: 19999 | Generazione onda quadra a 50Hz (1MHz tick) per il servomotore |
-| **Sensori Fiamma** | `GPIO_Input` (x5) | No Pull-up/down | Lettura digitale (0/1) per le 5 direzioni spaziali |
+| **Sensori Fiamma** | `GPIO_Input` (x5) | No Pull-up/down | Lettura analogica per le 5 direzioni spaziali |
 | **Relè Pompa** | `GPIO_Output` | Push-Pull | Attivazione circuito di potenza estinguente |
 | **Pulsanti Manuali**| `PA1`, `PA2` | Internal Pull-Up | Input operatore (Active Low) per rotazione manuale |
 | **Tasto USER** | `PA0` | External Pull-Down (Nativo)| Modalità Test/Reset (Active High) |
