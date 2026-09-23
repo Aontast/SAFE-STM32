@@ -4,7 +4,7 @@
 ![C](https://img.shields.io/badge/Language-C-00599C?style=for-the-badge&logo=c)
 ![Hardware](https://img.shields.io/badge/Hardware-Embedded-red?style=for-the-badge)
 
-**S.A.F.E.** è un sistema embedded real-time progettato per rilevare autonomamente la presenza di fiamme, puntare una torretta motorizzata verso l'origine del fuoco e attivare una pompa ad acqua per l'estinzione. 
+**S.A.F.E.** è un sistema embedded real-time (_Edge computing node_) progettato per rilevare autonomamente la presenza di fiamme, puntare una torretta motorizzata verso l'origine del fuoco e attivare una pompa ad acqua per l'estinzione. 
 
 Sviluppato su architettura **ARM Cortex-M4 (STM32F303)**, il progetto si distingue per la sua logica software completamente non-bloccante e reattiva alle emergenze.
 
@@ -44,5 +44,5 @@ Il progetto è stato configurato tramite **STM32CubeMX** sfruttando le librerie 
 ## Come eseguire il progetto
 
 1. **Clona la repository:**
-   ```bash
-   git clone [https://github.com/Aontast/SAFE-STM32.git](https://github.com/Aontast/SAFE-STM32.git)
+   ```bash[
+   git clone https://github.com/Aontast/SAFE-STM32.git
